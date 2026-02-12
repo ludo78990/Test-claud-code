@@ -1,0 +1,162 @@
+{
+  "description": "Mapping des colonnes du fichier fournisseur vers le format PrestaShop 1.7.4 pour Elockstore.com",
+  "prestashop_version": "1.7.4",
+  "site": "elockstore.com",
+  "csv_settings": {
+    "input_delimiter": ";",
+    "input_encoding": "utf-8-sig",
+    "output_delimiter": ";",
+    "output_encoding": "utf-8"
+  },
+  "field_mapping": {
+    "reference_fournisseur": {
+      "prestashop_field": "Supplier reference",
+      "transform": "strip"
+    },
+    "reference": {
+      "prestashop_field": "Reference",
+      "transform": "strip"
+    },
+    "ean13": {
+      "prestashop_field": "EAN13",
+      "transform": "strip_ean"
+    },
+    "nom_produit": {
+      "prestashop_field": "Name *",
+      "transform": "title_case"
+    },
+    "description_courte": {
+      "prestashop_field": "Short description",
+      "transform": "clean_html"
+    },
+    "description": {
+      "prestashop_field": "Description",
+      "transform": "clean_html"
+    },
+    "prix_achat_ht": {
+      "prestashop_field": "Wholesale price",
+      "transform": "parse_price"
+    },
+    "prix_vente_ht": {
+      "prestashop_field": "Price tax excluded",
+      "transform": "parse_price"
+    },
+    "prix_vente_ttc": {
+      "prestashop_field": "Price tax included",
+      "transform": "parse_price"
+    },
+    "quantite": {
+      "prestashop_field": "Quantity",
+      "transform": "parse_int"
+    },
+    "poids": {
+      "prestashop_field": "Weight",
+      "transform": "parse_weight"
+    },
+    "largeur": {
+      "prestashop_field": "Width",
+      "transform": "parse_float"
+    },
+    "hauteur": {
+      "prestashop_field": "Height",
+      "transform": "parse_float"
+    },
+    "profondeur": {
+      "prestashop_field": "Depth",
+      "transform": "parse_float"
+    },
+    "categorie": {
+      "prestashop_field": "Categories (x,y,z...)",
+      "transform": "map_category"
+    },
+    "marque": {
+      "prestashop_field": "Manufacturer",
+      "transform": "strip"
+    },
+    "fournisseur": {
+      "prestashop_field": "Supplier",
+      "transform": "strip"
+    },
+    "url_image": {
+      "prestashop_field": "Image URLs (x,y,z...)",
+      "transform": "strip"
+    },
+    "actif": {
+      "prestashop_field": "Active (0/1)",
+      "transform": "parse_bool"
+    },
+    "tva": {
+      "prestashop_field": "Tax rule ID",
+      "transform": "map_tax_rule"
+    },
+    "ecotaxe": {
+      "prestashop_field": "Ecotax",
+      "transform": "parse_price"
+    },
+    "meta_title": {
+      "prestashop_field": "Meta title",
+      "transform": "truncate_70"
+    },
+    "meta_description": {
+      "prestashop_field": "Meta description",
+      "transform": "truncate_160"
+    },
+    "url_rewrite": {
+      "prestashop_field": "URL rewritten",
+      "transform": "slugify"
+    }
+  },
+  "default_values": {
+    "Active (0/1)": "1",
+    "Available for order (0/1)": "1",
+    "Show price (0/1)": "1",
+    "Visibility": "both",
+    "Condition": "new",
+    "Minimal quantity": "1",
+    "Tax rule ID": "1",
+    "On sale (0/1)": "0",
+    "Available online only (0/1)": "0",
+    "Delivery time of in-stock products": "Livraison sous 2-5 jours ouvrés",
+    "Delivery time of out-of-stock products": "Livraison sous 7-14 jours ouvrés"
+  },
+  "category_mapping": {
+    "serrure": "Accueil > Serrures",
+    "cylindre": "Accueil > Cylindres",
+    "verrou": "Accueil > Verrous",
+    "cadenas": "Accueil > Cadenas",
+    "poignee": "Accueil > Poignées",
+    "accessoire": "Accueil > Accessoires",
+    "coffre-fort": "Accueil > Coffres-forts",
+    "alarme": "Accueil > Alarmes",
+    "videosurveillance": "Accueil > Vidéosurveillance",
+    "controle-acces": "Accueil > Contrôle d'accès",
+    "domotique": "Accueil > Domotique",
+    "default": "Accueil"
+  },
+  "tax_rule_mapping": {
+    "20": "1",
+    "10": "2",
+    "5.5": "3",
+    "0": "4"
+  },
+  "auto_detect_columns": {
+    "patterns": {
+      "reference": ["ref", "reference", "sku", "code", "art", "article"],
+      "ean13": ["ean", "ean13", "gtin", "barcode", "code_barre", "codebarre"],
+      "nom_produit": ["nom", "name", "designation", "libelle", "titre", "product", "produit", "description_courte_produit"],
+      "description_courte": ["desc_courte", "short_desc", "resume", "short_description", "description_courte"],
+      "description": ["desc", "description", "description_longue", "long_description", "detail"],
+      "prix_achat_ht": ["pa_ht", "prix_achat", "cost", "wholesale", "prix_achat_ht", "pa"],
+      "prix_vente_ht": ["pv_ht", "prix_ht", "prix_vente_ht", "price_ht", "price_excl", "prix_hors_taxe"],
+      "prix_vente_ttc": ["pv_ttc", "prix_ttc", "prix_vente_ttc", "price_ttc", "price_incl", "prix_toutes_taxes"],
+      "quantite": ["qty", "qte", "quantite", "quantity", "stock"],
+      "poids": ["poids", "weight", "kg"],
+      "categorie": ["cat", "categorie", "category", "famille", "rayon"],
+      "marque": ["marque", "brand", "manufacturer", "fabricant"],
+      "fournisseur": ["fournisseur", "supplier", "vendor"],
+      "url_image": ["image", "img", "photo", "url_image", "image_url", "picture"],
+      "tva": ["tva", "tax", "taxe", "vat"],
+      "actif": ["actif", "active", "enabled", "status"]
+    }
+  }
+}

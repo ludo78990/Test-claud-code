@@ -1,0 +1,273 @@
+{
+  "name": "PrestaShop Import - Elockstore.com",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "everyDay",
+              "hour": 6,
+              "minute": 0
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Import Quotidien (6h)",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [240, 500],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "filePath": "/data/import/fichier_fournisseur.csv",
+        "options": {
+          "encoding": "utf8"
+        }
+      },
+      "id": "read-file",
+      "name": "Lire Fichier Fournisseur",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "options": {
+          "delimiter": ";",
+          "includeEmptyFields": false,
+          "headerRow": true
+        }
+      },
+      "id": "csv-parse",
+      "name": "Parser CSV",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 1,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json[\"nom_produit\"] || $json[\"designation\"] || $json[\"name\"] || $json[\"libelle\"] || \"\"}}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "filter-empty",
+      "name": "Filtrer Lignes Vides",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 1,
+      "position": [920, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// ============================================\n// TRANSFORMATION FOURNISSEUR -> PRESTASHOP 1.7.4\n// Elockstore.com\n// ============================================\n\nconst items = $input.all();\nconst results = [];\n\n// Helper functions\nfunction slugify(text) {\n  if (!text) return '';\n  return text.toString().toLowerCase()\n    .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')\n    .replace(/[^\\w\\s-]/g, '')\n    .replace(/[\\s_]+/g, '-')\n    .replace(/^-+|-+$/g, '')\n    .substring(0, 128);\n}\n\nfunction parsePrice(value) {\n  if (!value) return '';\n  let v = value.toString().replace(/[€$£\\s]/g, '');\n  const lastComma = v.lastIndexOf(',');\n  const lastDot = v.lastIndexOf('.');\n  if (lastComma > lastDot) {\n    v = v.replace(/\\./g, '').replace(',', '.');\n  } else if (lastDot > lastComma) {\n    v = v.replace(/,/g, '');\n  } else {\n    v = v.replace(',', '.');\n  }\n  const num = parseFloat(v);\n  return isNaN(num) ? '' : num.toFixed(6);\n}\n\nfunction parseInt2(value) {\n  if (!value) return '0';\n  const v = parseInt(value.toString().replace(/,/g, '.'));\n  return isNaN(v) ? '0' : v.toString();\n}\n\nfunction cleanEan(value) {\n  if (!value) return '';\n  let v = value.toString().replace(/[^\\d]/g, '');\n  if (v.length === 12) v = '0' + v;\n  return v.length === 13 ? v : (v.length <= 13 ? v : v.substring(0, 13));\n}\n\nfunction titleCase(text) {\n  if (!text) return '';\n  const small = new Set(['de','du','des','le','la','les','un','une','et','ou','en','à','au','aux','pour','par','sur','avec','sans']);\n  return text.split(' ').map((w, i) => {\n    if (i === 0 || !small.has(w.toLowerCase())) {\n      return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();\n    }\n    return w.toLowerCase();\n  }).join(' ');\n}\n\nfunction truncate(text, max) {\n  if (!text) return '';\n  text = text.toString().trim();\n  return text.length <= max ? text : text.substring(0, max - 3) + '...';\n}\n\nfunction cleanHtml(text) {\n  if (!text) return '';\n  return text.toString().trim().replace(/\\r\\n/g, '<br>').replace(/\\n/g, '<br>');\n}\n\n// Mapping auto-detect des colonnes source\nfunction findField(item, patterns) {\n  for (const key of Object.keys(item)) {\n    const keyLower = key.toLowerCase().replace(/[^a-z0-9]/g, '');\n    for (const p of patterns) {\n      if (keyLower === p || keyLower.includes(p)) {\n        return item[key];\n      }\n    }\n  }\n  return '';\n}\n\n// Category mapping\nconst categoryMap = {\n  'serrure': 'Accueil > Serrures',\n  'cylindre': 'Accueil > Cylindres',\n  'verrou': 'Accueil > Verrous',\n  'cadenas': 'Accueil > Cadenas',\n  'poignee': 'Accueil > Poignées',\n  'accessoire': 'Accueil > Accessoires',\n  'coffre': 'Accueil > Coffres-forts',\n  'alarme': 'Accueil > Alarmes',\n  'video': 'Accueil > Vidéosurveillance',\n  'controle': \"Accueil > Contrôle d'accès\",\n  'domotique': 'Accueil > Domotique',\n};\n\nfunction mapCategory(value) {\n  if (!value) return 'Accueil';\n  const lower = value.toString().toLowerCase();\n  for (const [key, cat] of Object.entries(categoryMap)) {\n    if (lower.includes(key)) return cat;\n  }\n  return 'Accueil > ' + value.toString().trim();\n}\n\nfor (const item of items) {\n  const data = item.json;\n  \n  // Extraire les champs avec auto-detection\n  const ref = (findField(data, ['ref','reference','sku','code','article']) || '').toString().trim();\n  const ean = cleanEan(findField(data, ['ean','ean13','gtin','barcode','codebarre']));\n  const name = titleCase(findField(data, ['nom','name','designation','libelle','titre','produit']));\n  const shortDesc = cleanHtml(findField(data, ['desccourte','shortdesc','resume','shortdescription','descriptioncourte']));\n  const desc = cleanHtml(findField(data, ['desc','description','descriptionlongue','longdescription','detail']));\n  const priceHT = parsePrice(findField(data, ['pvht','prixht','prixventeht','priceht','priceexcl','prixhorstaxe']));\n  const priceTTC = parsePrice(findField(data, ['pvttc','prixttc','prixventettc','pricettc','priceincl']));\n  const wholesale = parsePrice(findField(data, ['paht','prixachat','cost','wholesale','prixachatht','pa']));\n  const qty = parseInt2(findField(data, ['qty','qte','quantite','quantity','stock']));\n  const weight = findField(data, ['poids','weight','kg']).toString().replace(',', '.');\n  const category = mapCategory(findField(data, ['cat','categorie','category','famille','rayon']));\n  const brand = (findField(data, ['marque','brand','manufacturer','fabricant']) || '').toString().trim();\n  const supplier = (findField(data, ['fournisseur','supplier','vendor']) || '').toString().trim();\n  const supplierRef = (findField(data, ['reffournisseur','supplierref','refsupplier','supplierreference']) || '').toString().trim();\n  const imageUrl = (findField(data, ['image','img','photo','urlimage','imageurl','picture']) || '').toString().trim();\n  const ecotax = parsePrice(findField(data, ['ecotaxe','ecotax']));\n  \n  if (!name) continue;\n  \n  const slug = slugify(name);\n  const metaTitle = truncate(name + ' - Elockstore.com', 70);\n  const metaDesc = shortDesc ? \n    truncate(shortDesc.replace(/<[^>]+>/g, ''), 160) : \n    truncate('Achetez ' + name + ' sur Elockstore.com. Livraison rapide et prix compétitifs.', 160);\n\n  results.push({\n    json: {\n      'ID': '',\n      'Active (0/1)': '1',\n      'Name *': name,\n      'Categories (x,y,z...)': category,\n      'Price tax excluded': priceHT,\n      'Price tax included': priceTTC,\n      'Tax rule ID': '1',\n      'Wholesale price': wholesale,\n      'On sale (0/1)': '0',\n      'Discount amount': '',\n      'Discount percent': '',\n      'Discount from (yyyy-mm-dd)': '',\n      'Discount to (yyyy-mm-dd)': '',\n      'Reference': ref,\n      'Supplier reference': supplierRef || ref,\n      'Supplier': supplier,\n      'Manufacturer': brand,\n      'EAN13': ean,\n      'UPC': '',\n      'MPN': '',\n      'Ecotax': ecotax,\n      'Width': '',\n      'Height': '',\n      'Depth': '',\n      'Weight': weight,\n      'Delivery time of in-stock products': 'Livraison sous 2-5 jours ouvrés',\n      'Delivery time of out-of-stock products': 'Livraison sous 7-14 jours ouvrés',\n      'Quantity': qty,\n      'Minimal quantity': '1',\n      'Low stock level': '',\n      'Send me an email when the quantity is under this level (0/1)': '0',\n      'Visibility': 'both',\n      'Additional shipping cost': '',\n      'Unity': '',\n      'Unit price': '',\n      'Short description': shortDesc,\n      'Description': desc || shortDesc,\n      'Tags (x,y,z...)': '',\n      'Meta title': metaTitle,\n      'Meta keywords': '',\n      'Meta description': metaDesc,\n      'URL rewritten': slug,\n      'Text when in stock': 'En stock',\n      'Text when backorder allowed': 'Produit en cours de réapprovisionnement',\n      'Available for order (0/1)': '1',\n      'Product availability date': '',\n      'Product creation date': '',\n      'Show price (0/1)': '1',\n      'Image URLs (x,y,z...)': imageUrl,\n      'Image alt texts (x,y,z...)': imageUrl ? name : '',\n      'Delete existing images (0/1)': '0',\n      'Feature (Name:Value:Position:Customized)': '',\n      'Available online only (0/1)': '0',\n      'Condition': 'new',\n      'Customizable (0/1)': '0',\n      'Uploadable files (0/1)': '0',\n      'Text fields (0/1)': '0',\n      'Out of stock action': '',\n      'Virtual product (0/1)': '0',\n      'File URL': '',\n      'Number of allowed downloads': '',\n      'Expiration date (yyyy-mm-dd)': '',\n      'Number of days': '',\n      'ID / Name of shop': '',\n      'Advanced Stock Management': '0',\n      'Depends on stock': '0',\n      'Warehouse': '',\n      'Accessories (x,y,z...)': ''\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "transform-data",
+      "name": "Transformer Données",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1140, 300]
+    },
+    {
+      "parameters": {
+        "options": {
+          "delimiter": ";",
+          "headerRow": true,
+          "compression": "none"
+        }
+      },
+      "id": "csv-export",
+      "name": "Générer CSV PrestaShop",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 1,
+      "position": [1360, 300]
+    },
+    {
+      "parameters": {
+        "fileName": "/data/export/import_prestashop_{{$now.format('yyyy-MM-dd_HH-mm')}}.csv",
+        "options": {}
+      },
+      "id": "write-file",
+      "name": "Sauvegarder Fichier",
+      "type": "n8n-nodes-base.writeBinaryFile",
+      "typeVersion": 1,
+      "position": [1580, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://elockstore.com/api/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": []
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "prestashop-api",
+      "name": "Import via API PrestaShop",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1580, 500],
+      "disabled": true,
+      "notes": "Optionnel: Import direct via Webservice PrestaShop. Nécessite configuration de la clé API."
+    },
+    {
+      "parameters": {
+        "fromEmail": "import@elockstore.com",
+        "toEmail": "",
+        "subject": "Import PrestaShop - Rapport {{$now.format('dd/MM/yyyy HH:mm')}}",
+        "text": "=Import PrestaShop terminé avec succès.\n\nNombre de produits traités: {{$json[\"count\"] || $items.length}}\nDate: {{$now.format('dd/MM/yyyy HH:mm')}}\n\nFichier généré dans /data/export/",
+        "options": {}
+      },
+      "id": "email-notification",
+      "name": "Notification Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 1,
+      "position": [1800, 300],
+      "disabled": true,
+      "notes": "Optionnel: Notification email après import. Configurez vos credentials SMTP."
+    },
+    {
+      "parameters": {
+        "functionCode": "// Logging & Statistiques\nconst items = $input.all();\nconst count = items.length;\n\nconsole.log(`[PrestaShop Import] ${count} produits transformés avec succès`);\nconsole.log(`[PrestaShop Import] Date: ${new Date().toISOString()}`);\n\n// Vérification de qualité\nlet warnings = [];\nfor (const item of items) {\n  const d = item.json;\n  if (!d['Reference']) warnings.push(`Produit \"${d['Name *']}\" sans référence`);\n  if (!d['Price tax excluded'] && !d['Price tax included']) warnings.push(`Produit \"${d['Name *']}\" sans prix`);\n  if (!d['EAN13']) warnings.push(`Produit \"${d['Name *']}\" sans EAN13`);\n}\n\nif (warnings.length > 0) {\n  console.log(`[PrestaShop Import] ${warnings.length} avertissements:`);\n  for (const w of warnings) {\n    console.log(`  - ${w}`);\n  }\n}\n\nreturn items;"
+      },
+      "id": "quality-check",
+      "name": "Contrôle Qualité",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1140, 500]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Lire Fichier Fournisseur",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Import Quotidien (6h)": {
+      "main": [
+        [
+          {
+            "node": "Lire Fichier Fournisseur",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire Fichier Fournisseur": {
+      "main": [
+        [
+          {
+            "node": "Parser CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parser CSV": {
+      "main": [
+        [
+          {
+            "node": "Filtrer Lignes Vides",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrer Lignes Vides": {
+      "main": [
+        [
+          {
+            "node": "Transformer Données",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transformer Données": {
+      "main": [
+        [
+          {
+            "node": "Générer CSV PrestaShop",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Contrôle Qualité",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Générer CSV PrestaShop": {
+      "main": [
+        [
+          {
+            "node": "Sauvegarder Fichier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sauvegarder Fichier": {
+      "main": [
+        [
+          {
+            "node": "Notification Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "prestashop",
+      "id": "1"
+    },
+    {
+      "name": "import",
+      "id": "2"
+    },
+    {
+      "name": "elockstore",
+      "id": "3"
+    }
+  ],
+  "pinData": {},
+  "versionId": "1"
+}
