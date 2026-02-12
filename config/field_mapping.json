@@ -1,109 +1,99 @@
 {
-  "description": "Mapping des colonnes du fichier fournisseur vers le format PrestaShop 1.7.4 pour Elockstore.com",
+  "description": "Mapping fichier catalogue Compulocks/Maclocks vers PrestaShop 1.7.4 pour Elockstore.com",
   "prestashop_version": "1.7.4",
   "site": "elockstore.com",
+  "supplier_name": "Compulocks",
   "csv_settings": {
-    "input_delimiter": ";",
+    "input_delimiter": "\t",
     "input_encoding": "utf-8-sig",
     "output_delimiter": ";",
     "output_encoding": "utf-8"
   },
-  "field_mapping": {
-    "reference_fournisseur": {
-      "prestashop_field": "Supplier reference",
-      "transform": "strip"
-    },
-    "reference": {
+  "source_columns": {
+    "PN": {
       "prestashop_field": "Reference",
-      "transform": "strip"
+      "also_maps_to": "Supplier reference"
     },
-    "ean13": {
+    "UPC": {
       "prestashop_field": "EAN13",
-      "transform": "strip_ean"
+      "transform": "fix_scientific_upc"
     },
-    "nom_produit": {
-      "prestashop_field": "Name *",
-      "transform": "title_case"
+    "HS Code": {
+      "prestashop_field": "Feature",
+      "feature_name": "Code douanier"
     },
-    "description_courte": {
-      "prestashop_field": "Short description",
-      "transform": "clean_html"
+    "Bundle/Simple": {
+      "internal_use": true,
+      "note": "S=Simple, B=Bundle"
     },
-    "description": {
-      "prestashop_field": "Description",
-      "transform": "clean_html"
-    },
-    "prix_achat_ht": {
-      "prestashop_field": "Wholesale price",
-      "transform": "parse_price"
-    },
-    "prix_vente_ht": {
-      "prestashop_field": "Price tax excluded",
-      "transform": "parse_price"
-    },
-    "prix_vente_ttc": {
-      "prestashop_field": "Price tax included",
-      "transform": "parse_price"
-    },
-    "quantite": {
-      "prestashop_field": "Quantity",
-      "transform": "parse_int"
-    },
-    "poids": {
+    "Weight (lb)": {
       "prestashop_field": "Weight",
-      "transform": "parse_weight"
+      "transform": "lbs_to_kg"
     },
-    "largeur": {
-      "prestashop_field": "Width",
-      "transform": "parse_float"
+    "Dimensions (In)": {
+      "prestashop_fields": ["Width", "Height", "Depth"],
+      "transform": "inches_to_cm_split"
     },
-    "hauteur": {
-      "prestashop_field": "Height",
-      "transform": "parse_float"
+    "Color": {
+      "prestashop_field": "Feature",
+      "feature_name": "Couleur"
     },
-    "profondeur": {
-      "prestashop_field": "Depth",
-      "transform": "parse_float"
+    "Material": {
+      "prestashop_field": "Feature",
+      "feature_name": "Matériau"
     },
-    "categorie": {
-      "prestashop_field": "Categories (x,y,z...)",
-      "transform": "map_category"
+    "COO": {
+      "prestashop_field": "Feature",
+      "feature_name": "Pays d'origine"
     },
-    "marque": {
-      "prestashop_field": "Manufacturer",
-      "transform": "strip"
+    "Marketing Name": {
+      "prestashop_field": "Name *",
+      "transform": "translate_name"
     },
-    "fournisseur": {
-      "prestashop_field": "Supplier",
-      "transform": "strip"
+    "Web-site link": {
+      "internal_use": true,
+      "note": "Lien fournisseur, non importé"
     },
-    "url_image": {
+    "Link to the User Guide": {
+      "prestashop_field": "Feature",
+      "feature_name": "Guide utilisateur"
+    },
+    "Link to the Spec Sheet": {
+      "prestashop_field": "Feature",
+      "feature_name": "Fiche technique"
+    },
+    "Compatibility": {
+      "prestashop_field": "Feature",
+      "feature_name": "Compatibilité",
+      "also_append_to": "Description"
+    },
+    "Picture 1": {
       "prestashop_field": "Image URLs (x,y,z...)",
-      "transform": "strip"
+      "position": 1
     },
-    "actif": {
-      "prestashop_field": "Active (0/1)",
-      "transform": "parse_bool"
+    "Picture 2": {
+      "prestashop_field": "Image URLs (x,y,z...)",
+      "position": 2
     },
-    "tva": {
-      "prestashop_field": "Tax rule ID",
-      "transform": "map_tax_rule"
+    "Picture 3": {
+      "prestashop_field": "Image URLs (x,y,z...)",
+      "position": 3
     },
-    "ecotaxe": {
-      "prestashop_field": "Ecotax",
-      "transform": "parse_price"
+    "Picture 4": {
+      "prestashop_field": "Image URLs (x,y,z...)",
+      "position": 4
     },
-    "meta_title": {
-      "prestashop_field": "Meta title",
-      "transform": "truncate_70"
+    "Long description": {
+      "prestashop_field": "Description",
+      "transform": "translate_description"
     },
-    "meta_description": {
-      "prestashop_field": "Meta description",
-      "transform": "truncate_160"
+    "Marketing Bullet Points": {
+      "prestashop_field": "Short description",
+      "transform": "bullets_to_html_list"
     },
-    "url_rewrite": {
-      "prestashop_field": "URL rewritten",
-      "transform": "slugify"
+    "Marketing Bullet Points as list": {
+      "internal_use": true,
+      "note": "Version alternative, non utilisé"
     }
   },
   "default_values": {
@@ -116,47 +106,69 @@
     "Tax rule ID": "1",
     "On sale (0/1)": "0",
     "Available online only (0/1)": "0",
-    "Delivery time of in-stock products": "Livraison sous 2-5 jours ouvrés",
-    "Delivery time of out-of-stock products": "Livraison sous 7-14 jours ouvrés"
+    "Supplier": "Compulocks",
+    "Manufacturer": "Compulocks",
+    "Quantity": "0",
+    "Delivery time of in-stock products": "Livraison sous 3-7 jours ouvrés",
+    "Delivery time of out-of-stock products": "Livraison sous 10-21 jours ouvrés",
+    "Text when in stock": "En stock - Expédition sous 48h",
+    "Text when backorder allowed": "Sur commande - Livraison sous 2-3 semaines"
   },
-  "category_mapping": {
-    "serrure": "Accueil > Serrures",
-    "cylindre": "Accueil > Cylindres",
-    "verrou": "Accueil > Verrous",
-    "cadenas": "Accueil > Cadenas",
-    "poignee": "Accueil > Poignées",
-    "accessoire": "Accueil > Accessoires",
-    "coffre-fort": "Accueil > Coffres-forts",
-    "alarme": "Accueil > Alarmes",
-    "videosurveillance": "Accueil > Vidéosurveillance",
-    "controle-acces": "Accueil > Contrôle d'accès",
-    "domotique": "Accueil > Domotique",
-    "default": "Accueil"
+  "category_rules": [
+    {"pattern": "enclosure|space enclosure", "category": "Accueil > Supports et Fixations > Boîtiers Tablettes"},
+    {"pattern": "kickstand", "category": "Accueil > Supports et Fixations > Supports Bureau"},
+    {"pattern": "wall mount|wallmount", "category": "Accueil > Supports et Fixations > Fixations Murales"},
+    {"pattern": "floor stand|floorstand|kiosk", "category": "Accueil > Supports et Fixations > Bornes et Totems"},
+    {"pattern": "desk mount|desk stand|rise", "category": "Accueil > Supports et Fixations > Supports Bureau"},
+    {"pattern": "arm|reach|articulating", "category": "Accueil > Supports et Fixations > Bras Articulés"},
+    {"pattern": "charging|usb.*port|dock", "category": "Accueil > Solutions de Recharge"},
+    {"pattern": "cable lock|lock slot|t-bar", "category": "Accueil > Câbles et Verrous de Sécurité"},
+    {"pattern": "case|edge case|rugged", "category": "Accueil > Coques et Protections"},
+    {"pattern": "cling|grip|holder", "category": "Accueil > Supports et Fixations > Supports Universels"},
+    {"pattern": "ledge|macbook|laptop", "category": "Accueil > Sécurité Laptop"},
+    {"pattern": "pos|payment|terminal", "category": "Accueil > Solutions Point de Vente"},
+    {"pattern": "medical|hospital|patient", "category": "Accueil > Solutions Médicales"},
+    {"pattern": "default", "category": "Accueil > Supports et Fixations"}
+  ],
+  "color_translation": {
+    "Black": "Noir",
+    "White": "Blanc",
+    "Silver": "Argent",
+    "Gray": "Gris",
+    "Grey": "Gris",
+    "Red": "Rouge",
+    "Blue": "Bleu",
+    "Pink": "Rose",
+    "Gold": "Or",
+    "Transparent": "Transparent"
   },
-  "tax_rule_mapping": {
-    "20": "1",
-    "10": "2",
-    "5.5": "3",
-    "0": "4"
+  "material_translation": {
+    "ALUMINUM": "Aluminium",
+    "Aluminium": "Aluminium",
+    "STEEL": "Acier",
+    "Steel": "Acier",
+    "Plastic": "Plastique",
+    "Rubber": "Caoutchouc",
+    "POLYCARBONATE": "Polycarbonate",
+    "Metal": "Métal"
   },
-  "auto_detect_columns": {
-    "patterns": {
-      "reference": ["ref", "reference", "sku", "code", "art", "article"],
-      "ean13": ["ean", "ean13", "gtin", "barcode", "code_barre", "codebarre"],
-      "nom_produit": ["nom", "name", "designation", "libelle", "titre", "product", "produit", "description_courte_produit"],
-      "description_courte": ["desc_courte", "short_desc", "resume", "short_description", "description_courte"],
-      "description": ["desc", "description", "description_longue", "long_description", "detail"],
-      "prix_achat_ht": ["pa_ht", "prix_achat", "cost", "wholesale", "prix_achat_ht", "pa"],
-      "prix_vente_ht": ["pv_ht", "prix_ht", "prix_vente_ht", "price_ht", "price_excl", "prix_hors_taxe"],
-      "prix_vente_ttc": ["pv_ttc", "prix_ttc", "prix_vente_ttc", "price_ttc", "price_incl", "prix_toutes_taxes"],
-      "quantite": ["qty", "qte", "quantite", "quantity", "stock"],
-      "poids": ["poids", "weight", "kg"],
-      "categorie": ["cat", "categorie", "category", "famille", "rayon"],
-      "marque": ["marque", "brand", "manufacturer", "fabricant"],
-      "fournisseur": ["fournisseur", "supplier", "vendor"],
-      "url_image": ["image", "img", "photo", "url_image", "image_url", "picture"],
-      "tva": ["tva", "tax", "taxe", "vat"],
-      "actif": ["actif", "active", "enabled", "status"]
-    }
+  "country_translation": {
+    "IL": "Israël",
+    "CN": "Chine",
+    "US": "États-Unis",
+    "TW": "Taïwan",
+    "DE": "Allemagne"
+  },
+  "price_config": {
+    "note": "Le fichier Compulocks ne contient pas de prix. Utilisez un fichier prix séparé ou configurez les prix manuellement.",
+    "price_file": "prix_elockstore.csv",
+    "price_file_columns": {
+      "reference": "PN",
+      "prix_achat_ht": "Cost",
+      "prix_vente_ht": "Price_HT",
+      "prix_vente_ttc": "Price_TTC"
+    },
+    "default_margin_percent": 45,
+    "tva_rate": 20
   }
 }

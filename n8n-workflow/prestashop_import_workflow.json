@@ -1,5 +1,5 @@
 {
-  "name": "PrestaShop Import - Elockstore.com",
+  "name": "Import Compulocks → PrestaShop - Elockstore.com",
   "nodes": [
     {
       "parameters": {},
@@ -14,15 +14,16 @@
         "triggerTimes": {
           "item": [
             {
-              "mode": "everyDay",
+              "mode": "everyWeek",
               "hour": 6,
-              "minute": 0
+              "minute": 0,
+              "weekday": "1"
             }
           ]
         }
       },
       "id": "cron-trigger",
-      "name": "Import Quotidien (6h)",
+      "name": "Import Hebdo (Lundi 6h)",
       "type": "n8n-nodes-base.cron",
       "typeVersion": 1,
       "position": [240, 500],
@@ -30,13 +31,13 @@
     },
     {
       "parameters": {
-        "filePath": "/data/import/fichier_fournisseur.csv",
+        "filePath": "/data/import/compulocks_catalogue.tsv",
         "options": {
           "encoding": "utf8"
         }
       },
-      "id": "read-file",
-      "name": "Lire Fichier Fournisseur",
+      "id": "read-catalogue",
+      "name": "Lire Catalogue Compulocks",
       "type": "n8n-nodes-base.readBinaryFile",
       "typeVersion": 1,
       "position": [480, 300]
@@ -44,13 +45,13 @@
     {
       "parameters": {
         "options": {
-          "delimiter": ";",
+          "delimiter": "\\t",
           "includeEmptyFields": false,
           "headerRow": true
         }
       },
-      "id": "csv-parse",
-      "name": "Parser CSV",
+      "id": "parse-tsv",
+      "name": "Parser TSV",
       "type": "n8n-nodes-base.spreadsheetFile",
       "typeVersion": 1,
       "position": [700, 300]
@@ -60,34 +61,47 @@
         "conditions": {
           "string": [
             {
-              "value1": "={{$json[\"nom_produit\"] || $json[\"designation\"] || $json[\"name\"] || $json[\"libelle\"] || \"\"}}",
+              "value1": "={{$json[\"PN\"]}}",
+              "operation": "isNotEmpty"
+            },
+            {
+              "value1": "={{$json[\"Marketing Name\"]}}",
               "operation": "isNotEmpty"
             }
           ]
         }
       },
-      "id": "filter-empty",
-      "name": "Filtrer Lignes Vides",
+      "id": "filter-valid",
+      "name": "Filtrer Produits Valides",
       "type": "n8n-nodes-base.filter",
       "typeVersion": 1,
       "position": [920, 300]
     },
     {
       "parameters": {
-        "functionCode": "// ============================================\n// TRANSFORMATION FOURNISSEUR -> PRESTASHOP 1.7.4\n// Elockstore.com\n// ============================================\n\nconst items = $input.all();\nconst results = [];\n\n// Helper functions\nfunction slugify(text) {\n  if (!text) return '';\n  return text.toString().toLowerCase()\n    .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')\n    .replace(/[^\\w\\s-]/g, '')\n    .replace(/[\\s_]+/g, '-')\n    .replace(/^-+|-+$/g, '')\n    .substring(0, 128);\n}\n\nfunction parsePrice(value) {\n  if (!value) return '';\n  let v = value.toString().replace(/[€$£\\s]/g, '');\n  const lastComma = v.lastIndexOf(',');\n  const lastDot = v.lastIndexOf('.');\n  if (lastComma > lastDot) {\n    v = v.replace(/\\./g, '').replace(',', '.');\n  } else if (lastDot > lastComma) {\n    v = v.replace(/,/g, '');\n  } else {\n    v = v.replace(',', '.');\n  }\n  const num = parseFloat(v);\n  return isNaN(num) ? '' : num.toFixed(6);\n}\n\nfunction parseInt2(value) {\n  if (!value) return '0';\n  const v = parseInt(value.toString().replace(/,/g, '.'));\n  return isNaN(v) ? '0' : v.toString();\n}\n\nfunction cleanEan(value) {\n  if (!value) return '';\n  let v = value.toString().replace(/[^\\d]/g, '');\n  if (v.length === 12) v = '0' + v;\n  return v.length === 13 ? v : (v.length <= 13 ? v : v.substring(0, 13));\n}\n\nfunction titleCase(text) {\n  if (!text) return '';\n  const small = new Set(['de','du','des','le','la','les','un','une','et','ou','en','à','au','aux','pour','par','sur','avec','sans']);\n  return text.split(' ').map((w, i) => {\n    if (i === 0 || !small.has(w.toLowerCase())) {\n      return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();\n    }\n    return w.toLowerCase();\n  }).join(' ');\n}\n\nfunction truncate(text, max) {\n  if (!text) return '';\n  text = text.toString().trim();\n  return text.length <= max ? text : text.substring(0, max - 3) + '...';\n}\n\nfunction cleanHtml(text) {\n  if (!text) return '';\n  return text.toString().trim().replace(/\\r\\n/g, '<br>').replace(/\\n/g, '<br>');\n}\n\n// Mapping auto-detect des colonnes source\nfunction findField(item, patterns) {\n  for (const key of Object.keys(item)) {\n    const keyLower = key.toLowerCase().replace(/[^a-z0-9]/g, '');\n    for (const p of patterns) {\n      if (keyLower === p || keyLower.includes(p)) {\n        return item[key];\n      }\n    }\n  }\n  return '';\n}\n\n// Category mapping\nconst categoryMap = {\n  'serrure': 'Accueil > Serrures',\n  'cylindre': 'Accueil > Cylindres',\n  'verrou': 'Accueil > Verrous',\n  'cadenas': 'Accueil > Cadenas',\n  'poignee': 'Accueil > Poignées',\n  'accessoire': 'Accueil > Accessoires',\n  'coffre': 'Accueil > Coffres-forts',\n  'alarme': 'Accueil > Alarmes',\n  'video': 'Accueil > Vidéosurveillance',\n  'controle': \"Accueil > Contrôle d'accès\",\n  'domotique': 'Accueil > Domotique',\n};\n\nfunction mapCategory(value) {\n  if (!value) return 'Accueil';\n  const lower = value.toString().toLowerCase();\n  for (const [key, cat] of Object.entries(categoryMap)) {\n    if (lower.includes(key)) return cat;\n  }\n  return 'Accueil > ' + value.toString().trim();\n}\n\nfor (const item of items) {\n  const data = item.json;\n  \n  // Extraire les champs avec auto-detection\n  const ref = (findField(data, ['ref','reference','sku','code','article']) || '').toString().trim();\n  const ean = cleanEan(findField(data, ['ean','ean13','gtin','barcode','codebarre']));\n  const name = titleCase(findField(data, ['nom','name','designation','libelle','titre','produit']));\n  const shortDesc = cleanHtml(findField(data, ['desccourte','shortdesc','resume','shortdescription','descriptioncourte']));\n  const desc = cleanHtml(findField(data, ['desc','description','descriptionlongue','longdescription','detail']));\n  const priceHT = parsePrice(findField(data, ['pvht','prixht','prixventeht','priceht','priceexcl','prixhorstaxe']));\n  const priceTTC = parsePrice(findField(data, ['pvttc','prixttc','prixventettc','pricettc','priceincl']));\n  const wholesale = parsePrice(findField(data, ['paht','prixachat','cost','wholesale','prixachatht','pa']));\n  const qty = parseInt2(findField(data, ['qty','qte','quantite','quantity','stock']));\n  const weight = findField(data, ['poids','weight','kg']).toString().replace(',', '.');\n  const category = mapCategory(findField(data, ['cat','categorie','category','famille','rayon']));\n  const brand = (findField(data, ['marque','brand','manufacturer','fabricant']) || '').toString().trim();\n  const supplier = (findField(data, ['fournisseur','supplier','vendor']) || '').toString().trim();\n  const supplierRef = (findField(data, ['reffournisseur','supplierref','refsupplier','supplierreference']) || '').toString().trim();\n  const imageUrl = (findField(data, ['image','img','photo','urlimage','imageurl','picture']) || '').toString().trim();\n  const ecotax = parsePrice(findField(data, ['ecotaxe','ecotax']));\n  \n  if (!name) continue;\n  \n  const slug = slugify(name);\n  const metaTitle = truncate(name + ' - Elockstore.com', 70);\n  const metaDesc = shortDesc ? \n    truncate(shortDesc.replace(/<[^>]+>/g, ''), 160) : \n    truncate('Achetez ' + name + ' sur Elockstore.com. Livraison rapide et prix compétitifs.', 160);\n\n  results.push({\n    json: {\n      'ID': '',\n      'Active (0/1)': '1',\n      'Name *': name,\n      'Categories (x,y,z...)': category,\n      'Price tax excluded': priceHT,\n      'Price tax included': priceTTC,\n      'Tax rule ID': '1',\n      'Wholesale price': wholesale,\n      'On sale (0/1)': '0',\n      'Discount amount': '',\n      'Discount percent': '',\n      'Discount from (yyyy-mm-dd)': '',\n      'Discount to (yyyy-mm-dd)': '',\n      'Reference': ref,\n      'Supplier reference': supplierRef || ref,\n      'Supplier': supplier,\n      'Manufacturer': brand,\n      'EAN13': ean,\n      'UPC': '',\n      'MPN': '',\n      'Ecotax': ecotax,\n      'Width': '',\n      'Height': '',\n      'Depth': '',\n      'Weight': weight,\n      'Delivery time of in-stock products': 'Livraison sous 2-5 jours ouvrés',\n      'Delivery time of out-of-stock products': 'Livraison sous 7-14 jours ouvrés',\n      'Quantity': qty,\n      'Minimal quantity': '1',\n      'Low stock level': '',\n      'Send me an email when the quantity is under this level (0/1)': '0',\n      'Visibility': 'both',\n      'Additional shipping cost': '',\n      'Unity': '',\n      'Unit price': '',\n      'Short description': shortDesc,\n      'Description': desc || shortDesc,\n      'Tags (x,y,z...)': '',\n      'Meta title': metaTitle,\n      'Meta keywords': '',\n      'Meta description': metaDesc,\n      'URL rewritten': slug,\n      'Text when in stock': 'En stock',\n      'Text when backorder allowed': 'Produit en cours de réapprovisionnement',\n      'Available for order (0/1)': '1',\n      'Product availability date': '',\n      'Product creation date': '',\n      'Show price (0/1)': '1',\n      'Image URLs (x,y,z...)': imageUrl,\n      'Image alt texts (x,y,z...)': imageUrl ? name : '',\n      'Delete existing images (0/1)': '0',\n      'Feature (Name:Value:Position:Customized)': '',\n      'Available online only (0/1)': '0',\n      'Condition': 'new',\n      'Customizable (0/1)': '0',\n      'Uploadable files (0/1)': '0',\n      'Text fields (0/1)': '0',\n      'Out of stock action': '',\n      'Virtual product (0/1)': '0',\n      'File URL': '',\n      'Number of allowed downloads': '',\n      'Expiration date (yyyy-mm-dd)': '',\n      'Number of days': '',\n      'ID / Name of shop': '',\n      'Advanced Stock Management': '0',\n      'Depends on stock': '0',\n      'Warehouse': '',\n      'Accessories (x,y,z...)': ''\n    }\n  });\n}\n\nreturn results;"
+        "functionCode": "// ============================================\n// TRANSFORMATION COMPULOCKS → PRESTASHOP 1.7.4\n// Elockstore.com\n// ============================================\n\nconst items = $input.all();\nconst results = [];\n\n// --- Traductions EN → FR ---\nconst TERMS = {\n  'Space Enclosure': 'Boîtier Space',\n  'Apex Secured Enclosure': 'Boîtier Sécurisé Apex',\n  'Enclosure': 'Boîtier',\n  'Secured Kickstand': 'Support Chevalet Sécurisé',\n  'Kickstand': 'Support Chevalet',\n  'Wall Mount': 'Fixation Murale',\n  'Floor Stand': 'Totem Sur Pied',\n  'Desk Mount': 'Support Bureau',\n  'Swing Arm': 'Bras Pivotant',\n  'Articulating Arm': 'Bras Articulé',\n  'Extra Long Arm': 'Bras Extra Long',\n  'Reach Arm': 'Bras Extensible Reach',\n  'Cable Lock': 'Câble Antivol',\n  'Edge Case': 'Coque Edge',\n  'Charging Station': 'Station de Recharge',\n  'Charging Dock': 'Dock de Recharge',\n  'Rise Stand': 'Support Rise',\n  'Cling Mount': 'Support Adhésif Cling',\n  'POS Stand': 'Support Point de Vente',\n  'Kiosk': 'Borne Interactive',\n  'Laptop': 'Ordinateur Portable',\n  'Tablet': 'Tablette',\n  'Black': 'Noir',\n  'White': 'Blanc',\n  'Silver': 'Argent',\n  'High-grade aluminum': 'Aluminium haute qualité',\n  'High -grade aluminum': 'Aluminium haute qualité',\n  'Conceals charging cable': 'Dissimule le câble de charge',\n  'Quick keyed access': 'Accès rapide par clé',\n  'VESA pattern': 'Standard VESA',\n  'enclosure keys': 'clés pour boîtier',\n  'Metal kickstand': 'Support chevalet en métal',\n  'extra functionality': 'fonctionnalité supplémentaire',\n  'Lock slot and cable lock': 'Emplacement verrou et câble antivol',\n  'Mobile protective': 'Protection mobile',\n  'Rubber Edge case': 'Coque Edge en caoutchouc',\n  'Landscape orientation only': 'Orientation paysage uniquement',\n  'Sleek metal frame': 'Cadre métallique élégant',\n  'Cooling fan': 'Ventilateur de refroidissement',\n  'Multi-protection Safety System': 'Système de sécurité multi-protection',\n  'Multi-protection safety system': 'Système de sécurité multi-protection',\n  'USB ports': 'ports USB',\n  'Ergonomic Monitor Arm Wall Mount': 'Fixation murale bras moniteur ergonomique',\n  'Maximum weight': 'Poids maximum',\n};\n\nconst COLOR_FR = { 'Black':'Noir','White':'Blanc','Silver':'Argent','Gray':'Gris','Grey':'Gris','Red':'Rouge','Blue':'Bleu','Pink':'Rose','Gold':'Or' };\nconst MATERIAL_FR = { 'ALUMINUM':'Aluminium','Aluminium':'Aluminium','STEEL':'Acier','Steel':'Acier','Plastic':'Plastique','Metal':'Métal','Rubber':'Caoutchouc' };\nconst COUNTRY_FR = { 'IL':'Israël','CN':'Chine','US':'États-Unis','TW':'Taïwan','DE':'Allemagne' };\n\n// Category rules\nconst CAT_RULES = [\n  { p: /enclosure|space enclosure/i, c: 'Accueil > Supports et Fixations > Boîtiers Tablettes' },\n  { p: /kickstand/i, c: 'Accueil > Supports et Fixations > Supports Bureau' },\n  { p: /wall mount|wallmount/i, c: 'Accueil > Supports et Fixations > Fixations Murales' },\n  { p: /floor stand|floorstand|kiosk/i, c: 'Accueil > Supports et Fixations > Bornes et Totems' },\n  { p: /desk mount|desk stand|rise/i, c: 'Accueil > Supports et Fixations > Supports Bureau' },\n  { p: /arm|reach|articulating/i, c: 'Accueil > Supports et Fixations > Bras Articulés' },\n  { p: /charging|usb.*port|dock/i, c: 'Accueil > Solutions de Recharge' },\n  { p: /cable lock|lock slot|t-bar/i, c: 'Accueil > Câbles et Verrous de Sécurité' },\n  { p: /case|edge case|rugged/i, c: 'Accueil > Coques et Protections' },\n  { p: /cling|grip|holder/i, c: 'Accueil > Supports et Fixations > Supports Universels' },\n  { p: /ledge|macbook|laptop/i, c: 'Accueil > Sécurité Laptop' },\n  { p: /pos|payment|terminal/i, c: 'Accueil > Solutions Point de Vente' },\n  { p: /medical|hospital|patient/i, c: 'Accueil > Solutions Médicales' },\n];\n\n// --- Helper functions ---\nfunction fixUPC(val) {\n  if (!val) return '';\n  let v = val.toString().replace(',', '.');\n  try {\n    let num = parseFloat(v);\n    let result = Math.round(num).toString();\n    while (result.length < 12) result = '0' + result;\n    return result;\n  } catch(e) {\n    return val.toString().replace(/[^\\d]/g, '');\n  }\n}\n\nfunction lbsToKg(val) {\n  if (!val) return '';\n  let v = parseFloat(val.toString().replace(',', '.'));\n  return isNaN(v) ? '' : (v * 0.453592).toFixed(3);\n}\n\nfunction parseDims(val) {\n  if (!val) return { w: '', h: '', d: '' };\n  let parts = val.toString().split(/[xX×\\s]+/).filter(p => p);\n  let toCm = (p) => {\n    let n = parseFloat(p.replace(',', '.'));\n    return isNaN(n) ? '' : (n * 2.54).toFixed(2);\n  };\n  return {\n    w: parts[0] ? toCm(parts[0]) : '',\n    h: parts[1] ? toCm(parts[1]) : '',\n    d: parts[2] ? toCm(parts[2]) : ''\n  };\n}\n\nfunction translate(text) {\n  if (!text) return '';\n  let r = text;\n  // Sort by length desc to match longest first\n  let sorted = Object.entries(TERMS).sort((a,b) => b[0].length - a[0].length);\n  for (let [en, fr] of sorted) {\n    r = r.split(en).join(fr);\n  }\n  return r;\n}\n\nfunction bulletsToHtml(text) {\n  if (!text) return '';\n  let items = [];\n  if (text.includes('\\n')) {\n    items = text.split('\\n').map(l => l.replace(/^[-•*]\\s*/, '').trim()).filter(l => l);\n  } else if (text.includes(';')) {\n    items = text.split(';').map(i => i.trim()).filter(i => i);\n  } else if ((text.match(/,/g) || []).length >= 2) {\n    items = text.split(',').map(i => i.trim()).filter(i => i);\n  } else {\n    return '<p>' + translate(text) + '</p>';\n  }\n  return '<ul>' + items.map(i => '<li>' + translate(i) + '</li>').join('') + '</ul>';\n}\n\nfunction slugify(text) {\n  return text.toString().toLowerCase()\n    .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')\n    .replace(/[^\\w\\s-]/g, '').replace(/[\\s_]+/g, '-')\n    .replace(/^-+|-+$/g, '').substring(0, 128);\n}\n\nfunction categorize(name) {\n  for (let rule of CAT_RULES) {\n    if (rule.p.test(name)) return rule.c;\n  }\n  return 'Accueil > Supports et Fixations';\n}\n\nfunction buildFeatures(d) {\n  let f = [];\n  let color = (d['Color'] || '').trim();\n  if (color) f.push('Couleur:' + (COLOR_FR[color] || color) + ':0:0');\n  let mat = (d['Material'] || '').trim();\n  if (mat) f.push('Matériau:' + (MATERIAL_FR[mat] || mat) + ':1:0');\n  let coo = (d['COO'] || '').trim();\n  if (coo) f.push(\"Pays d'origine:\" + (COUNTRY_FR[coo] || coo) + ':2:0');\n  let hs = (d['HS Code'] || '').trim();\n  if (hs) f.push('Code douanier:' + hs + ':3:0');\n  let compat = (d['Compatibility'] || '').trim();\n  if (compat) f.push('Compatibilité:' + compat.replace(/\\n/g, ' | ') + ':4:0');\n  return f.join(',');\n}\n\nfunction buildImages(d) {\n  let urls = [];\n  for (let k of ['Picture 1','Picture 2','Picture 3','Picture 4']) {\n    let url = (d[k] || '').trim();\n    if (url) urls.push(url);\n  }\n  return urls.join(',');\n}\n\n// --- Main loop ---\nfor (const item of items) {\n  const d = item.json;\n  const pn = (d['PN'] || '').trim();\n  const name = (d['Marketing Name'] || '').trim();\n  if (!pn || !name) continue;\n\n  const nameFr = translate(name);\n  const upc = fixUPC(d['UPC']);\n  const dims = parseDims(d['Dimensions (In)']);\n  const imageUrls = buildImages(d);\n  const imageCount = imageUrls ? imageUrls.split(',').length : 0;\n  \n  const bullets = (d['Marketing Bullet Points'] || '').trim();\n  const shortDesc = bulletsToHtml(bullets);\n  const shortClean = shortDesc.replace(/<[^>]+>/g, '');\n  \n  let longDesc = (d['Long description'] || '').trim();\n  if (longDesc) {\n    longDesc = translate(longDesc).replace(/\\n\\n/g, '</p><p>').replace(/\\n/g, '<br>');\n    longDesc = '<p>' + longDesc + '</p>';\n  }\n\n  results.push({\n    json: {\n      'ID': '',\n      'Active (0/1)': '1',\n      'Name *': nameFr,\n      'Categories (x,y,z...)': categorize(name),\n      'Price tax excluded': '',\n      'Price tax included': '',\n      'Tax rule ID': '1',\n      'Wholesale price': '',\n      'On sale (0/1)': '0',\n      'Discount amount': '',\n      'Discount percent': '',\n      'Discount from (yyyy-mm-dd)': '',\n      'Discount to (yyyy-mm-dd)': '',\n      'Reference': pn,\n      'Supplier reference': pn,\n      'Supplier': 'Compulocks',\n      'Manufacturer': 'Compulocks',\n      'EAN13': upc.length >= 13 ? upc.substring(0,13) : '',\n      'UPC': upc.length === 12 ? upc : '',\n      'MPN': '',\n      'Ecotax': '',\n      'Width': dims.w,\n      'Height': dims.h,\n      'Depth': dims.d,\n      'Weight': lbsToKg(d['Weight (lb)']),\n      'Delivery time of in-stock products': 'Livraison sous 3-7 jours ouvrés',\n      'Delivery time of out-of-stock products': 'Livraison sous 10-21 jours ouvrés',\n      'Quantity': '0',\n      'Minimal quantity': '1',\n      'Low stock level': '',\n      'Send me an email when the quantity is under this level (0/1)': '0',\n      'Visibility': 'both',\n      'Additional shipping cost': '',\n      'Unity': '',\n      'Unit price': '',\n      'Short description': shortDesc,\n      'Description': longDesc || shortDesc,\n      'Tags (x,y,z...)': '',\n      'Meta title': (nameFr + ' - Elockstore').substring(0, 70),\n      'Meta keywords': '',\n      'Meta description': (shortClean || 'Achetez ' + nameFr + ' sur Elockstore.com').substring(0, 160),\n      'URL rewritten': slugify(nameFr),\n      'Text when in stock': 'En stock - Expédition sous 48h',\n      'Text when backorder allowed': 'Sur commande - Livraison sous 2-3 semaines',\n      'Available for order (0/1)': '1',\n      'Product availability date': '',\n      'Product creation date': '',\n      'Show price (0/1)': '1',\n      'Image URLs (x,y,z...)': imageUrls,\n      'Image alt texts (x,y,z...)': imageUrls ? Array(imageCount).fill(nameFr).join(',') : '',\n      'Delete existing images (0/1)': '0',\n      'Feature (Name:Value:Position:Customized)': buildFeatures(d),\n      'Available online only (0/1)': '0',\n      'Condition': 'new',\n      'Customizable (0/1)': '0',\n      'Uploadable files (0/1)': '0',\n      'Text fields (0/1)': '0',\n      'Out of stock action': '',\n      'Virtual product (0/1)': '0',\n      'File URL': '',\n      'Number of allowed downloads': '',\n      'Expiration date (yyyy-mm-dd)': '',\n      'Number of days': '',\n      'ID / Name of shop': '',\n      'Advanced Stock Management': '0',\n      'Depends on stock': '0',\n      'Warehouse': '',\n      'Accessories (x,y,z...)': ''\n    }\n  });\n}\n\nreturn results;"
       },
-      "id": "transform-data",
-      "name": "Transformer Données",
+      "id": "transform-compulocks",
+      "name": "Transformer Compulocks → PrestaShop",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [1140, 300]
     },
     {
       "parameters": {
+        "functionCode": "// Contrôle qualité + statistiques\nconst items = $input.all();\nlet warnings = [];\nlet categories = {};\n\nfor (const item of items) {\n  const d = item.json;\n  const ref = d['Reference'];\n  const name = d['Name *'];\n  \n  // Comptage catégories\n  let cat = d['Categories (x,y,z...)'] || 'Non catégorisé';\n  categories[cat] = (categories[cat] || 0) + 1;\n  \n  // Vérifications\n  if (!d['Price tax excluded'] && !d['Price tax included']) {\n    warnings.push(`[${ref}] ${name} - SANS PRIX`);\n  }\n  if (!d['EAN13'] && !d['UPC']) {\n    warnings.push(`[${ref}] ${name} - Sans code-barres`);\n  }\n  if (!d['Image URLs (x,y,z...)']) {\n    warnings.push(`[${ref}] ${name} - Sans image`);\n  }\n  if (!d['Short description']) {\n    warnings.push(`[${ref}] ${name} - Sans description courte`);\n  }\n}\n\nconsole.log('=== RAPPORT IMPORT COMPULOCKS ===');\nconsole.log(`Produits traités: ${items.length}`);\nconsole.log(`Avertissements: ${warnings.length}`);\nconsole.log('');\nconsole.log('Catégories:');\nfor (const [cat, count] of Object.entries(categories).sort((a,b) => b[1]-a[1])) {\n  console.log(`  ${cat}: ${count}`);\n}\nif (warnings.length > 0) {\n  console.log('');\n  console.log('Avertissements:');\n  for (const w of warnings.slice(0, 20)) {\n    console.log(`  ⚠ ${w}`);\n  }\n  if (warnings.length > 20) {\n    console.log(`  ... et ${warnings.length - 20} autres`);\n  }\n}\n\nreturn items;"
+      },
+      "id": "quality-check",
+      "name": "Contrôle Qualité",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1360, 500]
+    },
+    {
+      "parameters": {
         "options": {
           "delimiter": ";",
-          "headerRow": true,
-          "compression": "none"
+          "headerRow": true
         }
       },
       "id": "csv-export",
@@ -98,7 +112,7 @@
     },
     {
       "parameters": {
-        "fileName": "/data/export/import_prestashop_{{$now.format('yyyy-MM-dd_HH-mm')}}.csv",
+        "fileName": "/data/export/import_prestashop_compulocks_{{$now.format('yyyy-MM-dd_HH-mm')}}.csv",
         "options": {}
       },
       "id": "write-file",
@@ -109,31 +123,10 @@
     },
     {
       "parameters": {
-        "url": "https://elockstore.com/api/",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": true,
-        "bodyParameters": {
-          "parameters": []
-        },
-        "options": {
-          "timeout": 60000
-        }
-      },
-      "id": "prestashop-api",
-      "name": "Import via API PrestaShop",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 3,
-      "position": [1580, 500],
-      "disabled": true,
-      "notes": "Optionnel: Import direct via Webservice PrestaShop. Nécessite configuration de la clé API."
-    },
-    {
-      "parameters": {
         "fromEmail": "import@elockstore.com",
         "toEmail": "",
-        "subject": "Import PrestaShop - Rapport {{$now.format('dd/MM/yyyy HH:mm')}}",
-        "text": "=Import PrestaShop terminé avec succès.\n\nNombre de produits traités: {{$json[\"count\"] || $items.length}}\nDate: {{$now.format('dd/MM/yyyy HH:mm')}}\n\nFichier généré dans /data/export/",
+        "subject": "Import Compulocks → PrestaShop - {{$now.format('dd/MM/yyyy HH:mm')}}",
+        "text": "=Import Compulocks terminé.\n\nProduits traités: {{$items.length}}\nDate: {{$now.format('dd/MM/yyyy HH:mm')}}\n\nFichier dans /data/export/\n\nRAPPEL: Les prix ne sont pas dans le catalogue Compulocks.\nPensez à les ajouter manuellement ou via un import séparé.",
         "options": {}
       },
       "id": "email-notification",
@@ -141,133 +134,58 @@
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 1,
       "position": [1800, 300],
-      "disabled": true,
-      "notes": "Optionnel: Notification email après import. Configurez vos credentials SMTP."
-    },
-    {
-      "parameters": {
-        "functionCode": "// Logging & Statistiques\nconst items = $input.all();\nconst count = items.length;\n\nconsole.log(`[PrestaShop Import] ${count} produits transformés avec succès`);\nconsole.log(`[PrestaShop Import] Date: ${new Date().toISOString()}`);\n\n// Vérification de qualité\nlet warnings = [];\nfor (const item of items) {\n  const d = item.json;\n  if (!d['Reference']) warnings.push(`Produit \"${d['Name *']}\" sans référence`);\n  if (!d['Price tax excluded'] && !d['Price tax included']) warnings.push(`Produit \"${d['Name *']}\" sans prix`);\n  if (!d['EAN13']) warnings.push(`Produit \"${d['Name *']}\" sans EAN13`);\n}\n\nif (warnings.length > 0) {\n  console.log(`[PrestaShop Import] ${warnings.length} avertissements:`);\n  for (const w of warnings) {\n    console.log(`  - ${w}`);\n  }\n}\n\nreturn items;"
-      },
-      "id": "quality-check",
-      "name": "Contrôle Qualité",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [1140, 500]
+      "disabled": true
     }
   ],
   "connections": {
     "Start": {
       "main": [
-        [
-          {
-            "node": "Lire Fichier Fournisseur",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Lire Catalogue Compulocks", "type": "main", "index": 0 }]
       ]
     },
-    "Import Quotidien (6h)": {
+    "Import Hebdo (Lundi 6h)": {
       "main": [
-        [
-          {
-            "node": "Lire Fichier Fournisseur",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Lire Catalogue Compulocks", "type": "main", "index": 0 }]
       ]
     },
-    "Lire Fichier Fournisseur": {
+    "Lire Catalogue Compulocks": {
       "main": [
-        [
-          {
-            "node": "Parser CSV",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Parser TSV", "type": "main", "index": 0 }]
       ]
     },
-    "Parser CSV": {
+    "Parser TSV": {
       "main": [
-        [
-          {
-            "node": "Filtrer Lignes Vides",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Filtrer Produits Valides", "type": "main", "index": 0 }]
       ]
     },
-    "Filtrer Lignes Vides": {
+    "Filtrer Produits Valides": {
       "main": [
-        [
-          {
-            "node": "Transformer Données",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Transformer Compulocks → PrestaShop", "type": "main", "index": 0 }]
       ]
     },
-    "Transformer Données": {
+    "Transformer Compulocks → PrestaShop": {
       "main": [
         [
-          {
-            "node": "Générer CSV PrestaShop",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Contrôle Qualité",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "Générer CSV PrestaShop", "type": "main", "index": 0 },
+          { "node": "Contrôle Qualité", "type": "main", "index": 0 }
         ]
       ]
     },
     "Générer CSV PrestaShop": {
       "main": [
-        [
-          {
-            "node": "Sauvegarder Fichier",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Sauvegarder Fichier", "type": "main", "index": 0 }]
       ]
     },
     "Sauvegarder Fichier": {
       "main": [
-        [
-          {
-            "node": "Notification Email",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Notification Email", "type": "main", "index": 0 }]
       ]
     }
   },
-  "settings": {
-    "executionOrder": "v1"
-  },
-  "staticData": null,
+  "settings": { "executionOrder": "v1" },
   "tags": [
-    {
-      "name": "prestashop",
-      "id": "1"
-    },
-    {
-      "name": "import",
-      "id": "2"
-    },
-    {
-      "name": "elockstore",
-      "id": "3"
-    }
-  ],
-  "pinData": {},
-  "versionId": "1"
+    { "name": "compulocks", "id": "1" },
+    { "name": "prestashop", "id": "2" },
+    { "name": "elockstore", "id": "3" }
+  ]
 }
